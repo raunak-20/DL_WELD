@@ -1,0 +1,16 @@
+# ── Core UI ──
+PyQt5>=5.15.0
+
+# ── Camera ──
+opencv-python>=4.5.0
+reportlab>=1.0.0
+PyMuPDF>=1.18.0
+
+# ── AI Inference (optional — needed only when running the RTMDet model) ───────
+# Uncomment the line that matches your hardware:
+#
+# CPU only (works on Raspberry Pi, macOS, Windows, Linux):
+onnxruntime>=1.16.0
+#
+# GPU / CUDA (desktop with NVIDIA card):
+# onnxruntime-gpu>=1.16.0
