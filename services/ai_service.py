@@ -167,7 +167,10 @@ class AIService:
             self._yolo = YOLO(self._model_path)
             self._backend = 'ultralytics'
             if hasattr(self._yolo, 'names') and self._yolo.names:
-                self._class_names = self._yolo.names
+                if isinstance(self._yolo.names, dict):
+                    self._class_names = self._yolo.names
+                elif isinstance(self._yolo.names, (list, tuple)):
+                    self._class_names = list(self._yolo.names)
         except Exception as e:
             print(f'[AIService] Could not load .pt model: {e}')
             with open('ai_error.log', 'a') as f:
@@ -194,7 +197,7 @@ class AIService:
         if self.model_loaded:
             if self._backend == 'onnx':
                 return self._real_inference_onnx(frame, w, h, ts)
-            if self._backend == 'ultralytics':
+            elif self._backend == 'ultralytics':
                 return self._real_inference_pt(frame, w, h, ts)
         return self._simulated_inference(w, h, ts)
 
