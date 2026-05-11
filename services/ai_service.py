@@ -5,10 +5,10 @@ AI / ML inference service for weld defect detection.
 
 Current status: PLACEHOLDER — returns simulated results.
 
-To integrate RTMDet (or any ONNX model):
-  1. Place model file at:  <project_root>/model/end2end.onnx
+To integrate a model:
+  1. Place model file at:  <project_root>/model/best-2.pt or best.onnx
   2. Set MODEL_PATH below (or pass it to AIService.__init__)
-  3. Implement _load_model() and run_inference() using onnxruntime.
+  3. For .pt models install ultralytics + torch, for .onnx install onnxruntime.
 
 The rest of the application (controller, UI) calls only run_inference()
 and reads DetectionResult objects — no other changes needed.
@@ -25,10 +25,23 @@ from typing import List, Optional
 # On Raspberry Pi the model lives at:
 #   /home/pi/Desktop/Weld-Inspection/model/end2end.onnx
 # On other systems set the env var  WELD_MODEL_PATH  or change this default.
-_DEFAULT_MODEL = os.environ.get(
-    'WELD_MODEL_PATH',
-    os.path.join(os.path.dirname(os.path.dirname(__file__)), 'model', 'best.onnx')
-)
+def _resolve_default_model() -> str:
+    model_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'model')
+    candidates = [
+        'best-2.pt',
+        'best.pt',
+        'best.onnx',
+        'end2end.onnx',
+    ]
+    for name in candidates:
+        candidate = os.path.join(model_dir, name)
+        if os.path.exists(candidate):
+            return candidate
+    return os.path.join(model_dir, 'best.onnx')
+
+
+_ENV_MODEL = os.environ.get('WELD_MODEL_PATH')
+_DEFAULT_MODEL = _ENV_MODEL or _resolve_default_model()
 
 try:
     import onnxruntime as ort
@@ -101,29 +114,69 @@ class AIService:
     def __init__(self, model_path: str = _DEFAULT_MODEL):
         self._model_path = model_path
         self._session = None
+        self._yolo = None
+        self._backend = None
+        self._class_names = list(self.CLASS_NAMES)
         self._load_model()
 
     # ── Initialisation ────────────────────────────────────────────────────────
 
     def _load_model(self):
-        """Load ONNX model if available; silently fall back to simulation."""
-        if not _ORT_AVAILABLE:
-            with open('ai_error.log', 'a') as f: f.write('ORT NOT AVAILABLE\n')
-            return
+        """Load .onnx or .pt model; silently fall back to simulation."""
+        self._session = None
+        self._yolo = None
+        self._backend = None
+
         if not os.path.exists(self._model_path):
-            with open('ai_error.log', 'a') as f: f.write(f'Model path not found: {self._model_path}\n')
+            with open('ai_error.log', 'a') as f:
+                f.write(f'Model path not found: {self._model_path}\n')
+            return
+
+        ext = os.path.splitext(self._model_path)[1].lower()
+        if ext == '.onnx':
+            self._load_onnx_model()
+        elif ext in ('.pt', '.pth'):
+            self._load_pt_model()
+        else:
+            with open('ai_error.log', 'a') as f:
+                f.write(f'Unsupported model extension: {ext}\n')
+
+    def _load_onnx_model(self):
+        if not _ORT_AVAILABLE:
+            with open('ai_error.log', 'a') as f:
+                f.write('ORT NOT AVAILABLE\n')
             return
         try:
             providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
             self._session = ort.InferenceSession(self._model_path, providers=providers)
+            self._backend = 'onnx'
         except Exception as e:
-            print(f'[AIService] Could not load model: {e}')
-            with open('ai_error.log', 'a') as f: f.write(f'Could not load model: {e}\n')
+            print(f'[AIService] Could not load ONNX model: {e}')
+            with open('ai_error.log', 'a') as f:
+                f.write(f'Could not load ONNX model: {e}\n')
             self._session = None
+
+    def _load_pt_model(self):
+        try:
+            from ultralytics import YOLO
+        except ImportError:
+            with open('ai_error.log', 'a') as f:
+                f.write('Ultralytics not available for .pt model\n')
+            return
+        try:
+            self._yolo = YOLO(self._model_path)
+            self._backend = 'ultralytics'
+            if hasattr(self._yolo, 'names') and self._yolo.names:
+                self._class_names = self._yolo.names
+        except Exception as e:
+            print(f'[AIService] Could not load .pt model: {e}')
+            with open('ai_error.log', 'a') as f:
+                f.write(f'Could not load .pt model: {e}\n')
+            self._yolo = None
 
     @property
     def model_loaded(self) -> bool:
-        return self._session is not None
+        return self._backend is not None
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -139,9 +192,11 @@ class AIService:
         h, w = frame.shape[:2]
 
         if self.model_loaded:
-            return self._real_inference(frame, w, h, ts)
-        else:
-            return self._simulated_inference(w, h, ts)
+            if self._backend == 'onnx':
+                return self._real_inference_onnx(frame, w, h, ts)
+            if self._backend == 'ultralytics':
+                return self._real_inference_pt(frame, w, h, ts)
+        return self._simulated_inference(w, h, ts)
 
     # ── Real inference (ONNX) ─────────────────────────────────────────────────
 
@@ -152,7 +207,7 @@ class AIService:
         ┌─ TODO when you have the real model ─────────────────────────────────┐
         │  Adjust the input tensor name (self._session.get_inputs()[0].name)  │
         """
-    def _real_inference(self, frame, w: int, h: int, ts: str) -> DetectionResult:
+    def _real_inference_onnx(self, frame, w: int, h: int, ts: str) -> DetectionResult:
         try:
             import cv2
             import numpy as np
@@ -227,7 +282,7 @@ class AIService:
                     y2 = (y_max - top) / r
 
                     cls_id = class_ids[i]
-                    label = self.CLASS_NAMES[cls_id] if cls_id < len(self.CLASS_NAMES) else 'defect'
+                    label = self._get_label(cls_id)
 
                     boxes.append(BoundingBox(
                         x1=float(x1),
@@ -257,6 +312,65 @@ class AIService:
                 f.write(f'Inference error: {e}\n')
                 f.write(traceback.format_exc() + '\n')
             return self._simulated_inference(w, h, ts)
+
+    # ── Real inference (.pt / Ultralytics) ────────────────────────────────────
+
+    def _real_inference_pt(self, frame, w: int, h: int, ts: str) -> DetectionResult:
+        try:
+            import time
+            import numpy as np
+
+            t0 = time.perf_counter()
+            results = self._yolo.predict(
+                source=frame,
+                imgsz=self.INPUT_W,
+                conf=self.CONF_THRESHOLD,
+                verbose=False,
+            )
+            boxes = []
+            if results:
+                result = results[0]
+                if result.boxes is not None and len(result.boxes) > 0:
+                    xyxy = result.boxes.xyxy.cpu().numpy()
+                    confs = result.boxes.conf.cpu().numpy() if result.boxes.conf is not None else np.zeros(len(xyxy))
+                    clss = result.boxes.cls.cpu().numpy() if result.boxes.cls is not None else np.zeros(len(xyxy))
+                    for (x1, y1, x2, y2), conf, cls_id in zip(xyxy, confs, clss):
+                        cls_id = int(cls_id)
+                        boxes.append(BoundingBox(
+                            x1=float(x1),
+                            y1=float(y1),
+                            x2=float(x2),
+                            y2=float(y2),
+                            confidence=float(conf),
+                            label=self._get_label(cls_id),
+                            label_id=cls_id,
+                        ))
+
+            elapsed = (time.perf_counter() - t0) * 1000
+            return DetectionResult(
+                boxes=boxes,
+                inference_time_ms=elapsed,
+                frame_width=w,
+                frame_height=h,
+                is_simulated=False,
+                timestamp=ts,
+            )
+        except Exception as e:
+            print(f'[AIService] .pt inference error: {e}')
+            import traceback
+            with open('ai_error.log', 'a') as f:
+                f.write(f'.pt inference error: {e}\n')
+                f.write(traceback.format_exc() + '\n')
+            return self._simulated_inference(w, h, ts)
+
+    def _get_label(self, cls_id: int) -> str:
+        if isinstance(self._class_names, dict):
+            return self._class_names.get(cls_id, 'defect')
+        if isinstance(self._class_names, (list, tuple)) and cls_id < len(self._class_names):
+            return self._class_names[cls_id]
+        if cls_id < len(self.CLASS_NAMES):
+            return self.CLASS_NAMES[cls_id]
+        return 'defect'
 
     # ── Simulation (non-RPi / no model) ──────────────────────────────────────
 

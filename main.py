@@ -45,7 +45,10 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # FIX: Import onnxruntime BEFORE PyQt5 to avoid DLL conflicts on Windows!
-import onnxruntime
+try:
+    import onnxruntime  # noqa: F401
+except ImportError:
+    onnxruntime = None
 
 from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QStackedWidget
 from PyQt5.QtGui     import QFont, QFontDatabase

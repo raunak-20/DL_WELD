@@ -14,7 +14,7 @@ def test_image(img_path):
         print("Error: Could not load image. Please check the path.")
         return
 
-    print("Initializing AI Service and loading best.onnx...")
+    print("Initializing AI Service and loading the configured model...")
     svc = AIService()
     if not svc.model_loaded:
         print("Error: Failed to load the model!")

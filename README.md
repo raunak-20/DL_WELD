@@ -51,8 +51,11 @@ source venv/bin/activate          # Windows: venv\Scripts\activate
 pip install pyqt5 opencv-python
 
 # 3. Optional: AI inference (Linux / Raspberry Pi)
-pip install onnxruntime            # CPU-only
+pip install onnxruntime            # CPU-only (for .onnx)
 # pip install onnxruntime-gpu      # if you have CUDA
+
+# Optional: .pt models (Ultralytics / PyTorch)
+pip install torch ultralytics
 
 # 4. Run
 python3 main.py
@@ -76,11 +79,14 @@ LOGO_SECONDARY = os.path.join(STATIC_DIR, 'DSES-Logo-2.png')  # ← put your fil
 
 ## Adding the ML Model
 
-1. Place model at `model/end2end.onnx` (or set env var `WELD_MODEL_PATH`)
-2. Open `services/ai_service.py`
-3. The service auto-loads on start; `_real_inference()` contains the ONNX call
-4. Adjust input tensor name + output parsing to match your model format
-5. Results flow: `AIService.run_inference(frame)` → `DetectionResult` → `page_analysis.set_result()`
+1. Place model at `model/best-2.pt` or `model/best.onnx` (or set env var `WELD_MODEL_PATH`)
+2. Install dependencies:
+   - `.pt`: `pip install torch ultralytics`
+   - `.onnx`: `pip install onnxruntime` (or onnxruntime-gpu)
+3. Open `services/ai_service.py`
+4. The service auto-loads on start; `_real_inference_*()` handles inference
+5. Adjust input/output parsing to match your model format
+6. Results flow: `AIService.run_inference(frame)` → `DetectionResult` → `page_analysis.set_result()`
 
 ---
 
