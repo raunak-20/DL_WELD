@@ -167,10 +167,7 @@ class AIService:
             self._yolo = YOLO(self._model_path)
             self._backend = 'ultralytics'
             if hasattr(self._yolo, 'names') and self._yolo.names:
-                if isinstance(self._yolo.names, dict):
-                    self._class_names = dict(self._yolo.names)
-                else:
-                    self._class_names = list(self._yolo.names)
+                self._class_names = self._yolo.names
         except Exception as e:
             print(f'[AIService] Could not load .pt model: {e}')
             with open('ai_error.log', 'a') as f:
@@ -336,7 +333,10 @@ class AIService:
                 if result.boxes is not None and len(result.boxes) > 0:
                     xyxy = result.boxes.xyxy.cpu().numpy()
                     if result.boxes.conf is None or result.boxes.cls is None:
-                        raise ValueError('Model output missing confidence/class data')
+                        raise ValueError(
+                            'Model output missing confidence/class data. '
+                            'This may indicate an incompatible or corrupted .pt model.'
+                        )
                     confs = result.boxes.conf.cpu().numpy()
                     clss = result.boxes.cls.cpu().numpy()
                     for (x1, y1, x2, y2), conf, cls_id in zip(xyxy, confs, clss):
