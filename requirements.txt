@@ -14,3 +14,7 @@ onnxruntime>=1.16.0
 #
 # GPU / CUDA (desktop with NVIDIA card):
 # onnxruntime-gpu>=1.16.0
+
+# ── AI Inference (.pt / Ultralytics) ─────────────────────────────────────────
+torch>=2.6.0
+ultralytics>=8.2.0
