@@ -171,6 +171,9 @@ class AIService:
                     self._class_names = self._yolo.names
                 elif isinstance(self._yolo.names, (list, tuple)):
                     self._class_names = list(self._yolo.names)
+                else:
+                    with open('ai_error.log', 'a') as f:
+                        f.write(f'Unexpected class names format: {type(self._yolo.names)}\n')
         except Exception as e:
             print(f'[AIService] Could not load .pt model: {e}')
             with open('ai_error.log', 'a') as f:
@@ -338,7 +341,8 @@ class AIService:
                     if result.boxes.conf is None or result.boxes.cls is None:
                         raise ValueError(
                             'Model output missing confidence/class data. '
-                            'This may indicate an incompatible or corrupted .pt model.'
+                            'Verify the model format, re-export if needed, and ensure '
+                            'it is compatible with the current ultralytics version.'
                         )
                     confs = result.boxes.conf.cpu().numpy()
                     clss = result.boxes.cls.cpu().numpy()
